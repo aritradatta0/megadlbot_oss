@@ -13,6 +13,9 @@ Megatron is a project that is very close to my heart - me being the whole brain 
 5. [tgcrypto](https://docs.pyrogram.org/topics/tgcrypto)
 
 The application makes use of [MongoDB](https://www.mongodb.com/) for its database, also uses [ffprobe](https://ffmpeg.org/ffprobe.html) from ffmpeg for generating media info.
+## Run on Docker 🐳
+```You can simply ignore everything below if you choose to go with Docker Method```<br>
+- [Docker Guide](DockerReadme.md)
 
 ## Cloning and running:
 1. Installation of DB
@@ -33,7 +36,7 @@ exit
 vim /etc/mongodb.conf
 
 #Add these lines at the bottom of the YAML config file:
-auth=ture
+auth=true
 
 # now save the file and once its closed restart mongo service:
 service mongod restart
@@ -81,14 +84,19 @@ b. Windows: A full documentation of how to is [here](https://www.wikihow.com/Ins
 # More info on API_ID and API_HASH can be found here: https://docs.pyrogram.org/intro/setup#api-keys
 api_id = 
 api_hash = 
+
 [plugins]
 root = mega/telegram/plugins
+
 [bot-configuration]
 # More info on Bot API Key/token can be found here: https://core.telegram.org/bots#6-botfather
 api_key = 
 session = megadlbot
 # Watch this video to understand what the dustbin is: https://www.youtube.com/watch?v=vgzMacnI5Z8
 dustbin = 
+allowed_users = [123123123, 321321321]
+# a list of user ids who are allowed to use this bot
+
 [database]
 # In this section db_host is the address of the machine where the MongoDB is running, if you are running 
 # both the bot and Mongo on same machine leave it as local host.
@@ -98,6 +106,11 @@ db_host = localhost
 db_username = admin
 db_password = 
 db_name = megadlbot
+
+# uncomment and fill in the credentials for seedr if you will be using it.
+#[seedr]
+#username = something@someone.com
+#pass = password
 ```
 
 ---
@@ -106,6 +119,11 @@ db_name = megadlbot
 > It is recommended to use [virtual environments](https://docs.python-guide.org/dev/virtualenvs/) while running the app, this is a good practice you can use at any of your python projects as virtualenv creates an isolated Python environment which is specific to your project.
 
 
-### The Easy Way
+### The Easy Way:
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
+
+Before clicking the Deploy button make sure you have the following details with you too:
+1. Create a free account on cloud.mongodb.com (This is for the DB and you need its details for the config file as explained above, also keep a note that if you host mongoDB community edition on your own its totally free otherwise you might have limitations).
+2. Create a Telegram channel (This one for the dustbin. As mentioned above watch this [video](https://www.youtube.com/watch?v=vgzMacnI5Z8) to understand what the dustbin is.)
+3. Well as obvious as it can be create a bot with @BotFather, also get your API ID and API Hash from my.telegram.org.  

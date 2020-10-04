@@ -1,17 +1,28 @@
-import re
 import os
-from pyrogram import filters, emoji
+import re
+import asyncio
+import logging
+import tldextract
+import humanfriendly as size
+from pyrogram import emoji, Client
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ForceReply
-from mega.telegram import MegaDLBot
-from mega.helpers.media_info import MediaInfo
-from mega.helpers.downloader import Downloader
-from mega.database.users import MegaUsers
+from pyrogram.errors import MessageNotModified
+from .. import filters
+from mega.common import Common
 from mega.database.files import MegaFiles
+from mega.database.users import MegaUsers
+from mega.helpers.downloader import Downloader
+from mega.helpers.media_info import MediaInfo
+from mega.helpers.screens import Screens
+from mega.helpers.ytdl import YTdl
+from mega.helpers.seerd_api import SeedrAPI
 
 
-@MegaDLBot.on_message(filters.private & filters.text, group=0)
-async def new_message_dl_handler(c: MegaDLBot, m: Message):
+@Client.on_message(filters.private & filters.text, group=0)
+async def new_message_dl_handler(c: Client, m: Message):
     await MegaUsers().insert_user(m.from_user.id)
+
+    me = await c.get_me()
 
     regex = re.compile(
         r'^(?:http|ftp)s?://'  # http:// or https://
@@ -21,17 +32,25 @@ async def new_message_dl_handler(c: MegaDLBot, m: Message):
         r'(?::\d+)?'  # optional port
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
-    if re.match(regex, m.text):
+    if re.match(regex, m.text) or m.text.startswith("magnet"):
         url_count = await MegaFiles().count_files_by_url(m.text)
-        if url_count == 0:
-            await url_process(m)
-        else:
+        if url_count == 0 and not m.text.startswith("magnet"):
+            if Common().seedr_username is not None:
+                await url_process(m)
+            else:
+                await m.reply_text("Well! I do not know how to download torrents unless you connect me to Seedr")
+        elif url_count == 0 and m.text.startswith("magnet"):
+            if Common().seedr_username is not None:
+                await call_seedr_download(m, "magnet")
+            else:
+                await m.reply_text("Well! I do not know how to download torrents unless you connect me to Seedr")
+        elif m.text.startswith("magnet"):
             url_details = await MegaFiles().get_file_by_url(m.text)
             files = [
-                f"<a href='http://t.me/megadlbot?start=plf-{file['file_id']}'>{file['file_name']} - {file['file_type']}</a>"
+                f"<a href='http://t.me/{me.username}?start=plf-{file['file_id']}'>{file['file_name']} - {file['file_type']}</a>"
                 for file in url_details
             ]
-            files_msg_formatted = '/n'.join(files)
+            files_msg_formatted = '\n'.join(files)
 
             await m.reply_text(
                 f"I also do have the following files that were uploaded earlier with the same url:\n"
@@ -39,47 +58,167 @@ async def new_message_dl_handler(c: MegaDLBot, m: Message):
                 disable_web_page_preview=True
             )
             await url_process(m)
+        else:
+            url_details = await MegaFiles().get_file_by_url(m.text)
+            files = [
+                f"<a href='http://t.me/{me.username}?start=plf-{file['file_id']}'>{file['file_name']} - {file['file_type']}</a>"
+                for file in url_details
+            ]
+            files_msg_formatted = '\n'.join(files)
+
+            await m.reply_text(
+                f"I also do have the following files that were uploaded earlier with the same url:\n"
+                f"{files_msg_formatted}",
+                disable_web_page_preview=True
+            )
+
+        await url_process(m)
 
 
 async def url_process(m: Message):
-    header_info = await Downloader.get_headers(m.text)
-    file_type_raw = header_info.get("Content-Type") if "Content-Type" in header_info else "None/None"
-    file_type_split = file_type_raw.split("/")[0]
-
-    if header_info is None:
+    if m.text.startswith("magnet"):
         await m.reply_text(
-            f"I do not know the details of the file to download the file! {emoji.MAN_RAISING_HAND_DARK_SKIN_TONE}"
-        )
-    elif header_info is not None:
-        file_size = header_info.get("Content-Length") if "Content-Length" in header_info else None
-        if file_size is not None and int(file_size) > 2147483648:
-            await m.reply_text(
-                f"Well that file is bigger than I can upload to telegram! {emoji.MAN_SHRUGGING_DARK_SKIN_TONE}"
+            text="What would you like to do with this file?",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton(text=f"{emoji.MAGNET} Proceed with Download",
+                                          callback_data=f"magnet_{m.chat.id}_{m.message_id}")]
+                ]
             )
-        else:
+        )
+    else:
+        header_info = await Downloader.get_headers(m.text)
+        file_type_raw = header_info.get("Content-Type") if "Content-Type" in header_info else "None/None"
+        file_type_split = file_type_raw.split("/")[0]
+        file_content_disposition = header_info.get("content-disposition")
+        file_name_f_headers = re.findall("filename=(.+)", file_content_disposition)[0] if file_content_disposition else None
+        file_ext_f_name = os.path.splitext(str(file_name_f_headers).replace('"', ""))[1]
+
+        if header_info is None:
+            await m.reply_text(
+                f"I do not know the details of the file to download the file! {emoji.MAN_RAISING_HAND_DARK_SKIN_TONE}"
+            )
+        elif (tldextract.extract(m.text)).domain != "youtube":
+            file_size = header_info.get("Content-Length") if "Content-Length" in header_info else None
+            if file_size is not None and int(file_size) > 2147483648:
+                await m.reply_text(
+                    f"Well that file is bigger than I can upload to telegram! {emoji.MAN_SHRUGGING_DARK_SKIN_TONE}"
+                )
+            else:
+                inline_buttons = [
+                    [
+                        InlineKeyboardButton(text=f"{emoji.FLOPPY_DISK} Download",
+                                             callback_data=f"download_{m.chat.id}_{m.message_id}"),
+                        InlineKeyboardButton(text=f"{emoji.PENCIL} Rename",
+                                             callback_data=f"rename_{m.chat.id}_{m.message_id}")
+                    ]
+                ]
+                if file_type_split.lower() == "video":
+                    inline_buttons.append([
+                        InlineKeyboardButton(text=f"{emoji.LIGHT_BULB} Media Info",
+                                             callback_data=f"info_{m.chat.id}_{m.message_id}"),
+                        InlineKeyboardButton(text=f"{emoji.FRAMED_PICTURE} Screens",
+                                             callback_data=f"screens_{m.chat.id}_{m.message_id}")
+                    ])
+                elif file_ext_f_name == ".torrent" and Common().seedr_username is not None:
+                    inline_buttons.append([
+                        InlineKeyboardButton(text=f"{emoji.TORNADO} Download Torrent",
+                                             callback_data=f"torrent_{m.chat.id}_{m.message_id}")
+                    ])
+                await m.reply_text(
+                    text="What would you like to do with this file?",
+                    reply_markup=InlineKeyboardMarkup(inline_buttons)
+                )
+
+        elif (tldextract.extract(m.text)).domain == "youtube":
             inline_buttons = [
                 [
-                    InlineKeyboardButton(text=f"{emoji.FLOPPY_DISK} Download",
-                                         callback_data=f"download_{m.chat.id}_{m.message_id}"),
-                    InlineKeyboardButton(text=f"{emoji.PENCIL} Rename",
-                                         callback_data=f"rename_{m.chat.id}_{m.message_id}")
+                    InlineKeyboardButton(text=f"{emoji.LOUDSPEAKER} Extract Audio",
+                                         callback_data=f"ytaudio_{m.chat.id}_{m.message_id}"),
+                    InlineKeyboardButton(text=f"{emoji.VIDEOCASSETTE} Extract Video",
+                                         callback_data=f"ytvid_{m.chat.id}_{m.message_id}")
+                ],
+                [
+                    InlineKeyboardButton(text=f"{emoji.LIGHT_BULB} Media Info",
+                                         callback_data=f"ytmd_{m.chat.id}_{m.message_id}")
                 ]
             ]
-            if file_type_split.lower() == "video":
-                inline_buttons.append([
-                    InlineKeyboardButton(text=f"{emoji.LIGHT_BULB} Media Info",
-                                         callback_data=f"info_{m.chat.id}_{m.message_id}")
-                ])
             await m.reply_text(
                 text="What would you like to do with this file?",
                 reply_markup=InlineKeyboardMarkup(inline_buttons)
             )
 
 
-@MegaDLBot.on_callback_query(filters.regex("^download.*"), group=0)
-async def callback_download_handler(c: MegaDLBot, cb: CallbackQuery):
-    cb_chat = int(str(cb.data).split("_")[1]) if len(str(cb.data).split("_")) > 1 else None
-    cb_message_id = int(str(cb.data).split("_")[2]) if len(str(cb.data).split("_")) > 2 else None
+@Client.on_callback_query(filters.callback_query("torrent"), group=0)
+async def callback_torrent_handler(c: Client, cb: CallbackQuery):
+    params = cb.payload.split('_')
+    cb_chat = int(params[0]) if len(params) > 0 else None
+    cb_message_id = int(params[1]) if len(params) > 1 else None
+
+    cb_message = await c.get_messages(cb_chat, cb_message_id) if cb_message_id is not None else None
+
+    await cb.answer()
+    await call_seedr_download(cb_message, "other")
+
+
+@Client.on_callback_query(filters.callback_query("magnet"), group=0)
+async def callback_magnet_handler(c: Client, cb: CallbackQuery):
+    params = cb.payload.split('_')
+    cb_chat = int(params[0]) if len(params) > 0 else None
+    cb_message_id = int(params[1]) if len(params) > 1 else None
+
+    cb_message = await c.get_messages(cb_chat, cb_message_id) if cb_message_id is not None else None
+
+    await cb.answer()
+    await call_seedr_download(cb_message, "magnet")
+
+
+@Client.on_callback_query(filters.callback_query("ytvid"), group=0)
+async def callback_ytvid_handler(c: Client, cb: CallbackQuery):
+    params = cb.payload.split('_')
+    cb_chat = int(params[0]) if len(params) > 0 else None
+    cb_message_id = int(params[1]) if len(params) > 1 else None
+
+    cb_message = await c.get_messages(cb_chat, cb_message_id) if cb_message_id is not None else None
+
+    await cb.answer()
+    await YTdl().extract(cb_message, "video")
+
+
+@Client.on_callback_query(filters.callback_query("ytaudio"), group=0)
+async def callback_ytaudio_handler(c: Client, cb: CallbackQuery):
+    params = cb.payload.split('_')
+    cb_chat = int(params[0]) if len(params) > 0 else None
+    cb_message_id = int(params[1]) if len(params) > 1 else None
+
+    cb_message = await c.get_messages(cb_chat, cb_message_id) if cb_message_id is not None else None
+
+    await cb.answer()
+    await YTdl().extract(cb_message, "audio")
+
+
+@Client.on_callback_query(filters.callback_query("ytmd"), group=0)
+async def callback_ytmd_handler(c: Client, cb: CallbackQuery):
+    params = cb.payload.split('_')
+    cb_chat = int(params[0]) if len(params) > 0 else None
+    cb_message_id = int(params[1]) if len(params) > 1 else None
+
+    cb_message = await c.get_messages(cb_chat, cb_message_id) if cb_message_id is not None else None
+
+    await cb.answer()
+    video_info = await YTdl().yt_media_info(cb_message)
+
+    await cb_message.reply_text(
+        "Here is the Media Info you requested: \n"
+        f"{emoji.CAT} View on nekobin.com: {video_info}"
+    )
+
+
+@Client.on_callback_query(filters.callback_query("download"), group=0)
+async def callback_download_handler(c: Client, cb: CallbackQuery):
+    params = cb.payload.split('_')
+    cb_chat = int(params[0]) if len(params) > 0 else None
+    cb_message_id = int(params[1]) if len(params) > 1 else None
 
     cb_message = await c.get_messages(cb_chat, cb_message_id) if cb_message_id is not None else None
 
@@ -92,10 +231,24 @@ async def callback_download_handler(c: MegaDLBot, cb: CallbackQuery):
     await Downloader().download_file(cb_message.text, ack_message, None)
 
 
-@MegaDLBot.on_callback_query(filters.regex("^rename.*"), group=1)
-async def callback_rename_handler(c: MegaDLBot, cb: CallbackQuery):
+@Client.on_callback_query(filters.callback_query("screens"), group=0)
+async def callback_screens_handler(c: Client, cb: CallbackQuery):
+    params = cb.payload.split('_')
+    cb_chat = int(params[0]) if len(params) > 0 else None
+    cb_message_id = int(params[1]) if len(params) > 1 else None
+
+    cb_message = await c.get_messages(cb_chat, cb_message_id) if cb_message_id is not None else None
+    await Screens().cap_screens(cb_message)
+    # i think that should do... lets check?
+
+
+@Client.on_callback_query(filters.callback_query("rename"), group=1)
+async def callback_rename_handler(c: Client, cb: CallbackQuery):
     await cb.answer()
-    cb_message_id = int(str(cb.data).split("_")[2]) if len(str(cb.data).split("_")) > 2 else None
+
+    params = cb.payload.split('_')
+    cb_message_id = int(params[1]) if len(params) > 1 else None
+
     await cb.message.reply_text(
         f"RENAME_{cb_message_id}:\n"
         f"Send me the new name of the file as a reply to this message.",
@@ -103,10 +256,11 @@ async def callback_rename_handler(c: MegaDLBot, cb: CallbackQuery):
     )
 
 
-@MegaDLBot.on_callback_query(filters.regex("^info.*"), group=2)
-async def callback_info_handler(c: MegaDLBot, cb: CallbackQuery):
-    cb_chat = int(str(cb.data).split("_")[1]) if len(str(cb.data).split("_")) > 1 else None
-    cb_message_id = int(str(cb.data).split("_")[2]) if len(str(cb.data).split("_")) > 2 else None
+@Client.on_callback_query(filters.callback_query("info"), group=2)
+async def callback_info_handler(c: Client, cb: CallbackQuery):
+    params = cb.payload.split('_')
+    cb_chat = int(params[0]) if len(params) > 0 else None
+    cb_message_id = int(params[1]) if len(params) > 1 else None
 
     await cb.answer()
     cb_message = await c.get_messages(cb_chat, cb_message_id) if cb_message_id is not None else None
@@ -123,8 +277,8 @@ async def callback_info_handler(c: MegaDLBot, cb: CallbackQuery):
                 os.remove(m_info)
 
 
-@MegaDLBot.on_message(filters.reply & filters.private, group=1)
-async def reply_message_handler(c: MegaDLBot, m: Message):
+@Client.on_message(filters.reply & filters.private, group=1)
+async def reply_message_handler(c: Client, m: Message):
     func_message_obj = str(m.reply_to_message.text).splitlines()[0].split("_")
     if len(func_message_obj) > 1:
         func = func_message_obj[0]
@@ -138,3 +292,102 @@ async def reply_message_handler(c: MegaDLBot, m: Message):
             )
 
             await Downloader().download_file(org_message.text, ack_message, new_file_name)
+
+
+@Client.on_callback_query(filters.callback_query("sdlc"), group=2)
+async def callback_sdlc_handler(c: Client, cb: CallbackQuery):
+    await cb.answer()
+
+    params = cb.payload.split('_')
+    folder_id = params[0] if len(params) > 0 else None
+    chat_id = int(params[1]) if len(params) > 1 else None
+    org_msg_id = int(params[2]) if len(params) > 2 else None
+    ack_msg_id = int(params[3]) if len(params) > 3 else None
+
+    org_msg = await c.get_messages(chat_id, org_msg_id)
+    ack_msg = await c.get_messages(chat_id, ack_msg_id)
+
+    folder_details = await SeedrAPI().get_folder(folder_id)
+    await SeedrAPI().download_folder(folder_details['id'], ack_msg, org_msg, "other")
+
+
+@Client.on_callback_query(filters.callback_query("unsd"), group=2)
+async def callback_unsd_handler(c: Client, cb: CallbackQuery):
+    await cb.answer()
+
+    params = cb.payload.split('_')
+    folder_id = params[0] if len(params) > 0 else None
+    chat_id = int(params[1]) if len(params) > 1 else None
+    org_msg_id = int(params[2]) if len(params) > 2 else None
+    ack_msg_id = int(params[3]) if len(params) > 3 else None
+
+    org_msg = await c.get_messages(chat_id, org_msg_id)
+    ack_msg = await c.get_messages(chat_id, ack_msg_id)
+
+    folder_details = await SeedrAPI().get_folder(folder_id)
+    await SeedrAPI().download_folder(folder_details['id'], ack_msg, org_msg, "compressed")
+
+
+async def call_seedr_download(msg: Message, torrent_type: str):
+    if torrent_type == "magnet":
+        ack_msg = await msg.reply_text(
+            "About to add the magnet link to seedr."
+        )
+
+        tr_process = await SeedrAPI().add_url(msg.text, "magnet")
+    else:
+        ack_msg = await msg.reply_text(
+            "About to add the link to seedr."
+        )
+        tr_process = await SeedrAPI().add_url(msg.text, "other")
+
+    if tr_process["result"] is True:
+        try:
+            while True:
+                await asyncio.sleep(4)
+                tr_progress = await SeedrAPI().get_torrent_details(tr_process["user_torrent_id"])
+                if tr_progress["progress"] < 100:
+                    try:
+                        await ack_msg.edit_text(
+                            f"Uploading to Seedr: \n"
+                            f"Progress: {tr_progress['progress']}% | "
+                            f"Size: {size.format_size(tr_progress['size'], binary=True)}"
+                        )
+                    except MessageNotModified as e:
+                        logging.error(e)
+                else:
+                    await asyncio.sleep(10)
+                    tr_progress = await SeedrAPI().get_torrent_details(tr_process["user_torrent_id"])
+                    await ack_msg.edit_text("How would you like to upload the contents?")
+                    await ack_msg.edit_reply_markup(
+                        InlineKeyboardMarkup(
+                            [
+                                [
+                                    InlineKeyboardButton(text=f"{emoji.PACKAGE} Compressed",
+                                                         callback_data=f"sdlc_{str(tr_progress['folder_created'])}"
+                                                                       f"_{msg.chat.id}_{msg.message_id}"
+                                                                       f"_{ack_msg.message_id}")
+                                ],
+                                [
+                                    InlineKeyboardButton(text=f"{emoji.CARD_FILE_BOX} UnCompressed",
+                                                         callback_data=f"unsd_{str(tr_progress['folder_created'])}"
+                                                                       f"_{msg.chat.id}_{msg.message_id}"
+                                                                       f"_{ack_msg.message_id}")
+                                ]
+                            ]
+                        )
+                    )
+                    break
+        except Exception as e:
+            logging.error(e)
+    else:
+        try:
+            error = tr_process['error']
+        except KeyError:
+            error = None
+
+        logging.error(error)
+        await ack_msg.edit_text(
+            f"An error occurred:\n<pre>{error}</pre>",
+            parse_mode="html"
+        )
