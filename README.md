@@ -1,7 +1,7 @@
 # Megadlbot aka Megatron:
-Megatron was a telegram file management bot that helped a lot of users, specially movie channel managers to upload their files to telegram by just providing a link to it. The project initially started as roanuedhuru_bot which lately retired and came back as Megatron which was a side project of the famous Maldivian Telegram community - @Baivaru until it retired.
+Megatron was a telegram file management bot that helped a lot of users, it specifically helped movie channel managers to upload their files to telegram by just providing a link to it. The project initially started as roanuedhuru_bot which lately retired and came back as Megatron which was a side project of the famous Maldivian Telegram community - @Baivaru, until it retired.
 
-Megatron is a project that is very close to my heart - me being the whole brain who developed it since the very beginning and as you are aware, for the cause of its life span the bot was never opensource unlike many other telegram bots which did a similar job. You had asked for its source for long enough I though I am not just going to give the source but build the whole thing from scratch at YouTube with you guys. 
+Megatron is a project that is very close to my heart, me being the sole brains who developed it since the very beginning, and as you are aware, for the course of its life span the bot was never opensource unlike many other telegram bots which did a similar job. Many users beseeched to make it opensource so after I decided to kill the project I decided not just to make the source code public but to instead build the whole thing from scratch and upload it on YouTube. The purpose of this was to ensure that anyone could create their own bot based on this with ease and to ensure that the code was beautiful and easy to read. 
 
 > [Youtube Playlist](https://www.youtube.com/playlist?list=PLApP3aDELGhvQqPcA_DsTSt-sA0v2OkqP)
 
@@ -11,8 +11,14 @@ Megatron is a project that is very close to my heart - me being the whole brain 
 3. [pymongo](https://github.com/mongodb/mongo-python-driver)
 4. [pyrogram](https://docs.pyrogram.org/)
 5. [tgcrypto](https://docs.pyrogram.org/topics/tgcrypto)
+6. [Youtube-dl](https://github.com/ytdl-org/youtube-dl)
+7. [google-api-python-client](https://github.com/googleapis/google-api-python-client)
 
 The application makes use of [MongoDB](https://www.mongodb.com/) for its database, also uses [ffprobe](https://ffmpeg.org/ffprobe.html) from ffmpeg for generating media info.
+Also optionally it makes use of [seedr](https://www.seedr.cc/) API to allow download torrents via the bot.
+
+To make use of google API to generate google drive links for the files that you upload, you would be required to create a service account and share its key with the bot from the available options at /dldsettings, to generate this key make use of this step by step [documentation](https://support.google.com/a/answer/7378726?hl=en) or otherwise a much in depth detailed documentation [here](https://cloud.google.com/iam/docs/creating-managing-service-account-keys).
+
 ## Run on Docker 🐳
 ```You can simply ignore everything below if you choose to go with Docker Method```<br>
 - [Docker Guide](DockerReadme.md)
@@ -119,7 +125,7 @@ db_name = megadlbot
 > It is recommended to use [virtual environments](https://docs.python-guide.org/dev/virtualenvs/) while running the app, this is a good practice you can use at any of your python projects as virtualenv creates an isolated Python environment which is specific to your project.
 
 
-### The Easy Way:
+### Deploying on Heroku:
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
 
