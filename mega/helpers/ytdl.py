@@ -37,12 +37,12 @@ class YTdl:
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
-                    'preferredquality': '192',
+                    'preferredquality': '320'
                 }],
             }
         elif extraction_type == "video":
             ytdl_options = {
-                'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[height<=480][ext=m4a]/best',
+                'format': 'bestvideo[height<=2160][ext=mp4]+bestaudio[height<=2160][ext=m4a]/best'
                 'noplaylist': 'true',
                 'outtmpl': f'{temp_dir}/%(title)s.%(ext)s',
                 'progress_hooks': [YTdl().progress_hooks],
