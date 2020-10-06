@@ -42,7 +42,7 @@ class YTdl:
             }
         elif extraction_type == "video":
             ytdl_options = {
-                'format': 'bestvideo[height<=2160][ext=mp4]+bestaudio[height<=2160][ext=m4a]/best',
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
                 'noplaylist': 'true',
                 'outtmpl': f'{temp_dir}/%(title)s.%(ext)s',
                 'progress_hooks': [YTdl().progress_hooks],
