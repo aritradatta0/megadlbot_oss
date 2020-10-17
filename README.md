@@ -15,9 +15,9 @@ Megatron is a project that is very close to my heart, me being the sole brains w
 7. [google-api-python-client](https://github.com/googleapis/google-api-python-client)
 
 The application makes use of [MongoDB](https://www.mongodb.com/) for its database, also uses [ffprobe](https://ffmpeg.org/ffprobe.html) from ffmpeg for generating media info.
-Also optionally it makes use of [seedr](https://www.seedr.cc/) API to allow download torrents via the bot.
+Also optionally it makes use of [seedr](https://www.seedr.cc/) API to allow download torrents via the bot - however this is a user base setting, that end user needs to setup via options under /dldsettings
 
-To make use of google API to generate google drive links for the files that you upload, you would be required to create a service account and share its key with the bot from the available options at /dldsettings, to generate this key make use of this step by step [documentation](https://support.google.com/a/answer/7378726?hl=en) or otherwise a much in depth detailed documentation [here](https://cloud.google.com/iam/docs/creating-managing-service-account-keys).
+To make use of google API to generate google drive links for the files that you upload, you would be required to create a service account and share its key with the bot from the available options at /dldsettings, to generate this key make use of this step by step [documentation](https://support.google.com/a/answer/7378726?hl=en) or otherwise a much in depth detailed documentation [here](https://cloud.google.com/iam/docs/creating-managing-service-account-keys). Also I have shown this process on the 18th [Video](https://youtu.be/wOrmOvRhFsk?t=469) of the YouTube Series.
 
 ## Run on Docker 🐳
 ```You can simply ignore everything below if you choose to go with Docker Method```<br>
@@ -113,10 +113,11 @@ db_username = admin
 db_password = 
 db_name = megadlbot
 
-# uncomment and fill in the credentials for seedr if you will be using it.
-#[seedr]
-#username = something@someone.com
-#pass = password
+# for the following section fill in the FQDN with which end users can reach the host machine, bindaddress is the address of the adapter to bind with while running webserver and the port for the webserver to listen.
+[web_server]
+bind_address = 0.0.0.0
+fqdn = localhost
+port = 8080
 ```
 
 ---
@@ -131,5 +132,5 @@ db_name = megadlbot
 
 Before clicking the Deploy button make sure you have the following details with you too:
 1. Create a free account on cloud.mongodb.com (This is for the DB and you need its details for the config file as explained above, also keep a note that if you host mongoDB community edition on your own its totally free otherwise you might have limitations).
-2. Create a Telegram channel (This one for the dustbin. As mentioned above watch this [video](https://www.youtube.com/watch?v=vgzMacnI5Z8) to understand what the dustbin is.)
+2. Create a Telegram channel (This one for the dustbin. As mentioned above watch this [video](https://www.youtube.com/watch?v=vgzMacnI5Z8) to understand what the dustbin is.) 
 3. Well as obvious as it can be create a bot with @BotFather, also get your API ID and API Hash from my.telegram.org.  
