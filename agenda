@@ -81,6 +81,19 @@ Agenda:
 17. Introduction of Torrents:
     - Introduction of Web API [x]
 
-   finally done with torrents, well added its support, now basically whats next should be uploading
-   these contents/downloaded stuff uncompressed... well until then, have a nice day!!! and stay healthy..
-   lets call it a video!!! I wish u all the best.
+18. Unzip/Extraction, Introduction to Google-Python-API and uploads to Google drive.
+    - Unzip/Extraction of torrent files uploaded [x]
+    - Authentication for Google API [x]
+    - Uploading Files to gDrive [x]
+    - Housekeeping of gDrive [x]
+
+19. Streaming Telegram files:
+so that is basically what is done, it looks complicated, however when once u understand the concept it is
+easy, in case you have any questions just jump by our status telegram group and there will always be
+someone around there to answer u... well the group is @megatronstatus... anyway, we will conclude the
+video here for today, on the next video we will investigate on a way to include this streaming link
+to the files that are uploaded, and if there is anything else to include that too....
+haha
+Have a nice day ahead... :-)
+    - Introduction of a webserver [x]
+    - Custom download method [x]

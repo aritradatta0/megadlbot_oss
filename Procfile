@@ -1,1 +1,1 @@
-worker: python -m mega
+web: python -m mega
