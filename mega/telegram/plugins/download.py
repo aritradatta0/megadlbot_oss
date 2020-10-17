@@ -1,26 +1,33 @@
 import os
 import re
+import secrets
 import asyncio
 import logging
 import tldextract
 import humanfriendly as size
-from pyrogram import emoji, Client
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ForceReply
-from pyrogram.errors import MessageNotModified
-from .. import filters
 from mega.common import Common
+from pyrogram import emoji, Client
+from mega.helpers.ytdl import YTdl
+from mega.helpers.screens import Screens
 from mega.database.files import MegaFiles
 from mega.database.users import MegaUsers
-from mega.helpers.downloader import Downloader
-from mega.helpers.media_info import MediaInfo
-from mega.helpers.screens import Screens
-from mega.helpers.ytdl import YTdl
 from mega.helpers.seerd_api import SeedrAPI
+from pyrogram.errors import MessageNotModified
+from mega.helpers.media_info import MediaInfo
+from mega.helpers.uploader import UploadFiles
+from mega.helpers.downloader import Downloader
+from mega.telegram.utils.custom_download import TGCustomYield
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ForceReply
+
+from .. import filters
+
+youtube_dl_links = ["youtube", "youtu", "facebook", "soundcloud"]
 
 
 @Client.on_message(filters.private & filters.text, group=0)
 async def new_message_dl_handler(c: Client, m: Message):
     await MegaUsers().insert_user(m.from_user.id)
+    user_details = await MegaUsers().get_user(m.from_user.id)
 
     me = await c.get_me()
 
@@ -35,19 +42,22 @@ async def new_message_dl_handler(c: Client, m: Message):
     if re.match(regex, m.text) or m.text.startswith("magnet"):
         url_count = await MegaFiles().count_files_by_url(m.text)
         if url_count == 0 and not m.text.startswith("magnet"):
-            if Common().seedr_username is not None:
+            if ('seedr_username' in user_details) and ('seedr_passwd' in user_details):
                 await url_process(m)
             else:
-                await m.reply_text("Well! I do not know how to download torrents unless you connect me to Seedr")
+                await m.reply_text("Well! I do not know how to download torrents unless you connect me to Seedr. "
+                                   "Seedr Settings are available under /dldsettings")
         elif url_count == 0 and m.text.startswith("magnet"):
-            if Common().seedr_username is not None:
+            if ('seedr_username' in user_details) and ('seedr_passwd' in user_details):
                 await call_seedr_download(m, "magnet")
             else:
-                await m.reply_text("Well! I do not know how to download torrents unless you connect me to Seedr")
+                await m.reply_text("Well! I do not know how to download torrents unless you connect me to Seedr. "
+                                   "Seedr Settings are available under /dldsettings")
         elif m.text.startswith("magnet"):
             url_details = await MegaFiles().get_file_by_url(m.text)
             files = [
-                f"<a href='http://t.me/{me.username}?start=plf-{file['file_id']}'>{file['file_name']} - {file['file_type']}</a>"
+                f"<a href='http://t.me/{me.username}?start=plf-{file['file_id']}'>{file['file_name']}" \
+                f" - {file['file_type']}</a>"
                 for file in url_details
             ]
             files_msg_formatted = '\n'.join(files)
@@ -61,7 +71,8 @@ async def new_message_dl_handler(c: Client, m: Message):
         else:
             url_details = await MegaFiles().get_file_by_url(m.text)
             files = [
-                f"<a href='http://t.me/{me.username}?start=plf-{file['file_id']}'>{file['file_name']} - {file['file_type']}</a>"
+                f"<a href='http://t.me/{me.username}" \
+                f"?start=plf-{file['file_id']}'>{file['file_name']} - {file['file_type']}</a>"
                 for file in url_details
             ]
             files_msg_formatted = '\n'.join(files)
@@ -76,6 +87,8 @@ async def new_message_dl_handler(c: Client, m: Message):
 
 
 async def url_process(m: Message):
+    user_details = await MegaUsers().get_user(m.from_user.id)
+
     if m.text.startswith("magnet"):
         await m.reply_text(
             text="What would you like to do with this file?",
@@ -92,7 +105,8 @@ async def url_process(m: Message):
         file_type_split = file_type_raw.split("/")[0]
         file_content_disposition = header_info.get("content-disposition")
         try:
-            file_name_f_headers = re.findall("filename=(.+)", file_content_disposition)[0] if file_content_disposition else None
+            file_name_f_headers = re.findall("filename=(.+)", file_content_disposition)[
+                0] if file_content_disposition else None
         except Exception as e:
             logging.error(e)
             file_name_f_headers = None
@@ -103,7 +117,7 @@ async def url_process(m: Message):
             await m.reply_text(
                 f"I do not know the details of the file to download the file! {emoji.MAN_RAISING_HAND_DARK_SKIN_TONE}"
             )
-        elif (tldextract.extract(m.text)).domain != "youtube":
+        elif (tldextract.extract(m.text)).domain not in youtube_dl_links:
             file_size = header_info.get("Content-Length") if "Content-Length" in header_info else None
             if file_size is not None and int(file_size) > 2147483648:
                 await m.reply_text(
@@ -125,7 +139,8 @@ async def url_process(m: Message):
                         InlineKeyboardButton(text=f"{emoji.FRAMED_PICTURE} Screens",
                                              callback_data=f"screens_{m.chat.id}_{m.message_id}")
                     ])
-                elif file_ext_f_name == ".torrent" and Common().seedr_username is not None:
+                elif file_ext_f_name == ".torrent" and ('seedr_username' in user_details) and \
+                        ('seedr_passwd' in user_details):
                     inline_buttons.append([
                         InlineKeyboardButton(text=f"{emoji.TORNADO} Download Torrent",
                                              callback_data=f"torrent_{m.chat.id}_{m.message_id}")
@@ -135,7 +150,7 @@ async def url_process(m: Message):
                     reply_markup=InlineKeyboardMarkup(inline_buttons)
                 )
 
-        elif (tldextract.extract(m.text)).domain == "youtube":
+        elif (tldextract.extract(m.text)).domain in youtube_dl_links:
             inline_buttons = [
                 [
                     InlineKeyboardButton(text=f"{emoji.LOUDSPEAKER} Extract Audio",
@@ -312,7 +327,7 @@ async def callback_sdlc_handler(c: Client, cb: CallbackQuery):
     org_msg = await c.get_messages(chat_id, org_msg_id)
     ack_msg = await c.get_messages(chat_id, ack_msg_id)
 
-    folder_details = await SeedrAPI().get_folder(folder_id)
+    folder_details = await SeedrAPI().get_folder(folder_id, cb.message.chat.id)
     await SeedrAPI().download_folder(folder_details['id'], ack_msg, org_msg, "other")
 
 
@@ -329,7 +344,7 @@ async def callback_unsd_handler(c: Client, cb: CallbackQuery):
     org_msg = await c.get_messages(chat_id, org_msg_id)
     ack_msg = await c.get_messages(chat_id, ack_msg_id)
 
-    folder_details = await SeedrAPI().get_folder(folder_id)
+    folder_details = await SeedrAPI().get_folder(folder_id, cb.message.chat.id)
     await SeedrAPI().download_folder(folder_details['id'], ack_msg, org_msg, "compressed")
 
 
@@ -339,18 +354,18 @@ async def call_seedr_download(msg: Message, torrent_type: str):
             "About to add the magnet link to seedr."
         )
 
-        tr_process = await SeedrAPI().add_url(msg.text, "magnet")
+        tr_process = await SeedrAPI().add_url(msg.text, "magnet", msg.chat.id)
     else:
         ack_msg = await msg.reply_text(
             "About to add the link to seedr."
         )
-        tr_process = await SeedrAPI().add_url(msg.text, "other")
+        tr_process = await SeedrAPI().add_url(msg.text, "other", msg.chat.id)
 
     if tr_process["result"] is True:
         try:
             while True:
                 await asyncio.sleep(4)
-                tr_progress = await SeedrAPI().get_torrent_details(tr_process["user_torrent_id"])
+                tr_progress = await SeedrAPI().get_torrent_details(tr_process["user_torrent_id"], msg.chat.id)
                 if tr_progress["progress"] < 100:
                     try:
                         await ack_msg.edit_text(
@@ -362,7 +377,7 @@ async def call_seedr_download(msg: Message, torrent_type: str):
                         logging.error(e)
                 else:
                     await asyncio.sleep(10)
-                    tr_progress = await SeedrAPI().get_torrent_details(tr_process["user_torrent_id"])
+                    tr_progress = await SeedrAPI().get_torrent_details(tr_process["user_torrent_id"], msg.chat.id)
                     await ack_msg.edit_text("How would you like to upload the contents?")
                     await ack_msg.edit_reply_markup(
                         InlineKeyboardMarkup(
@@ -396,3 +411,49 @@ async def call_seedr_download(msg: Message, torrent_type: str):
             f"An error occurred:\n<pre>{error}</pre>",
             parse_mode="html"
         )
+
+
+@Client.on_message(filters.private & (filters.document | filters.video | filters.audio), group=4)
+async def media_receive_handler(c: Client, m: Message):
+    user_settings = await MegaUsers().get_user(m.from_user.id)
+    if "f_rename_type" not in user_settings:
+        await MegaUsers().update_file_rename_settings(m.from_user.id, "disk")
+
+    await m.reply_text(
+        text=f"FRNM_{m.message_id}\n"
+             "Send me the new name of this file to rename it.",
+        reply_markup=ForceReply(True)
+    )
+
+
+@Client.on_message(filters.reply & filters.text, group=5)
+async def reply_media_rename_handler(c: Client, m: Message):
+    user_settings = await MegaUsers().get_user(m.from_user.id)
+
+    func_message_obj = str(m.reply_to_message.text).splitlines()[0].split("_")
+    if len(func_message_obj) > 1:
+        func = func_message_obj[0]
+
+        if func == "FRNM":
+            org_message_id = int(str(func_message_obj[1]).replace(":", ""))
+            org_message = await c.get_messages(m.chat.id, org_message_id)
+            ack_msg = await m.reply_text(
+                "Processing to file to rename it."
+            )
+            if "f_rename_type" in user_settings:
+                if user_settings["f_rename_type"] == "memory":
+                    m_file = await TGCustomYield().download_as_bytesio(org_message)
+                    await UploadFiles().upload_file(m_file, ack_msg, "", "other", "bytesIO", m.text)
+                else:
+                    temp_dir = f"working_dir/{secrets.token_hex(2)}"
+                    if not os.path.exists(f"mega/{temp_dir}"):
+                        os.mkdir(f"mega/{temp_dir}")
+
+                    m_file = f"{temp_dir}/{m.text}"
+
+                    await c.download_media(
+                        message=org_message,
+                        file_name=m_file
+                    )
+
+                    await UploadFiles().upload_file(f"mega/{m_file}", ack_msg, "", "other", "disk", m.text)
